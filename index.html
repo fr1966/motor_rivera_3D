@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motor Rivera 3D - Plegamiento Nativo Puro por Letras</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js & OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js for Live Energy Graph -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: #080c14;
+            color: #e2e8f0;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(13, 20, 36, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .drawer-transition {
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+        }
+        .drawer-hidden {
+            transform: translateY(110%);
+            opacity: 0;
+            pointer-events: none;
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen">
+
+    <!-- 3D Canvas container -->
+    <div id="canvas-container" class="absolute inset-0 w-full h-full z-0"></div>
+
+    <!-- HEADER / BRANDING & QUICK TOGGLE -->
+    <header class="absolute top-3 left-3 right-3 z-10 flex items-center justify-between pointer-events-none">
+        <div class="glass-panel rounded-xl p-2.5 px-3.5 flex items-center space-x-3 pointer-events-auto shadow-2xl">
+            <div class="relative flex items-center justify-center">
+                <i class="fa-solid fa-dna text-cyan-400 text-xl animate-pulse"></i>
+            </div>
+            <div>
+                <h1 class="text-xs font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-sky-300 to-indigo-400">
+                    Motor Rivera 3D v3.0 (Puro)
+                </h1>
+                <p class="text-[10px] text-slate-400 leading-none">Plegamiento Nativo por Secuencia / Letras</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2 pointer-events-auto">
+            <button id="btn-toggle-hud" onclick="toggleHUD()" 
+                class="glass-panel p-2.5 px-3 rounded-xl flex items-center space-x-1.5 text-xs font-semibold text-slate-300 hover:text-white shadow-xl active:scale-95 transition-all">
+                <i class="fa-solid fa-chart-simple text-cyan-400"></i>
+                <span class="hidden sm:inline">HUD</span>
+            </button>
+            <button onclick="exportarCSVFisico()" 
+                class="glass-panel p-2.5 px-3 rounded-xl flex items-center space-x-1.5 text-xs font-semibold text-emerald-400 hover:text-emerald-300 shadow-xl active:scale-95 transition-all border border-emerald-500/30">
+                <i class="fa-solid fa-file-csv"></i>
+                <span class="hidden sm:inline">Exportar CSV (3.8Å)</span>
+            </button>
+            <button id="btn-toggle-ui" onclick="toggleControlDrawer()" 
+                class="glass-panel p-2.5 px-3.5 rounded-xl flex items-center space-x-2 text-xs font-bold text-cyan-300 hover:text-white shadow-xl active:scale-95 transition-all border border-cyan-500/30">
+                <i id="toggle-icon" class="fa-solid fa-sliders text-cyan-400"></i>
+                <span id="toggle-text">Ocultar Panel</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- FLOATING COMPACT HUD -->
+    <div id="active-hud" class="absolute top-16 right-3 z-10 glass-panel rounded-xl p-3 w-64 space-y-2 shadow-2xl transition-all">
+        <div class="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+            <span class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Estado de Cadena</span>
+            <span id="eval-status" class="text-[9px] text-emerald-400 font-mono font-bold bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                Conformación Nativa
+            </span>
+        </div>
+
+        <div>
+            <div class="text-[9px] text-slate-400 uppercase tracking-wider">Secuencia Activa</div>
+            <div id="active-template-name" class="text-xs font-bold text-cyan-300 font-mono truncate">
+                Proteína G 1PGB (56 AA)
+            </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-1 pt-1 border-t border-slate-800/80 text-center">
+            <div class="bg-slate-900/60 p-1 rounded-lg border border-slate-800">
+                <span class="text-[8px] text-slate-400 block">Energía</span>
+                <span id="metric-energy" class="text-[10px] font-mono font-bold text-cyan-400">0.0</span>
+            </div>
+            <div class="bg-slate-900/60 p-1 rounded-lg border border-slate-800">
+                <span class="text-[8px] text-slate-400 block">Choques</span>
+                <span id="metric-clashes" class="text-[10px] font-mono font-bold text-rose-400">0</span>
+            </div>
+            <div class="bg-slate-900/60 p-1 rounded-lg border border-slate-800">
+                <span class="text-[8px] text-slate-400 block">Tensión</span>
+                <span id="metric-tension" class="text-[10px] font-mono font-bold text-indigo-400">0.00</span>
+            </div>
+            <div class="bg-slate-900/60 p-1 rounded-lg border border-slate-800">
+                <span class="text-[8px] text-slate-400 block">Rg (3.8Å)</span>
+                <span id="metric-rg" class="text-[10px] font-mono font-bold text-amber-400">0.00</span>
+            </div>
+        </div>
+
+        <div class="pt-1 text-[9px] text-slate-400 flex justify-between font-mono">
+            <span>Residuos / Contactos Terciarios:</span>
+            <span><span id="hud-node-count" class="text-cyan-300 font-bold">56</span> / <span id="hud-contact-count" class="text-emerald-400 font-bold">0</span></span>
+        </div>
+    </div>
+
+    <!-- MAIN CONTROL DRAWER -->
+    <aside id="control-drawer" class="drawer-transition absolute bottom-3 left-3 right-3 sm:left-4 sm:w-80 md:w-96 sm:bottom-4 sm:top-16 z-20 glass-panel rounded-2xl p-4 flex flex-col justify-between max-h-[82vh] sm:max-h-none overflow-y-auto space-y-3 shadow-2xl">
+        
+        <div class="space-y-3">
+            <!-- Mobile Header Close -->
+            <div class="flex items-center justify-between sm:hidden pb-2 border-b border-slate-800">
+                <span class="text-xs font-bold text-slate-300 uppercase tracking-wider">Algoritmo Nativo Rivera</span>
+                <button onclick="toggleControlDrawer()" class="text-slate-400 p-1"><i class="fa-solid fa-xmark text-sm"></i></button>
+            </div>
+
+            <!-- ENTRADA DE SECUENCIA DE LETRAS / AMINOÁCIDOS -->
+            <div class="space-y-3">
+                <div class="p-2.5 bg-slate-900/90 rounded-xl border border-slate-800 space-y-2">
+                    <label class="text-[10px] font-semibold uppercase text-cyan-300 tracking-wider flex items-center justify-between">
+                        <span><i class="fa-solid fa-pen-nib mr-1"></i> Secuencia Biológica / Texto</span>
+                        <span id="label-aa-count" class="text-[9px] text-emerald-400 font-mono font-bold">56 AA (Nativos)</span>
+                    </label>
+
+                    <textarea id="input-sequence" rows="3" 
+                        class="w-full bg-slate-950 border border-slate-700 text-xs font-mono text-cyan-200 p-2 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:outline-none uppercase tracking-wider resize-none"
+                        placeholder="Escriba la secuencia... Ej: TYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
+                        oninput="procesarEntradaTexto(true)"></textarea>
+
+                    <!-- Presets de Texto -->
+                    <div class="flex flex-wrap gap-1 pt-1">
+                        <button onclick="setPresetText('MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE')" class="text-[9px] bg-cyan-900/80 hover:bg-cyan-800 text-cyan-200 font-bold px-2 py-1 rounded-md border border-cyan-500/40 font-mono">
+                            <i class="fa-solid fa-flask mr-1"></i>Proteína G 1PGB (56 AA)
+                        </button>
+                        <button onclick="setPresetText('MKWVTFISLLFLFSSAYSRGVFRRDTHKSEIAHRFKDLGEEQFKGLVLIAFAQYLQQCPFEDHV')" class="text-[9px] bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md text-slate-300 font-mono">Albúmina AA (65)</button>
+                        <button onclick="setPresetText('MOTOR RIVERA BIOMATEMATICO')" class="text-[9px] bg-slate-800 hover:bg-slate-700 px-2 py-1 rounded-md text-slate-300 font-mono">Texto Rivera (25)</button>
+                    </div>
+                </div>
+
+                <!-- Modos de Mapeo Biomatemático -->
+                <div>
+                    <label class="text-[10px] font-semibold uppercase text-slate-400 tracking-wider block mb-1">
+                        <i class="fa-solid fa-calculator mr-1"></i> Mapeo Biomatemático de Plegamiento
+                    </label>
+                    <select id="select-mapeo-letra" onchange="procesarEntradaTexto(false)" 
+                        class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl p-2 focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                        <option value="ramachandran">Ramachandran Fisiológico (Ángulos Nativa Φ/Ψ)</option>
+                        <option value="frecuencia_ascii">ASCII Armónico Rivera (Matemático Puro)</option>
+                        <option value="hidrofobico">Mapas de Hidrofobicidad & Carga CPK</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- CONTROLES GENERALES DE GEOMETRÍA Y RESIDUOS HASTA 20,000 -->
+            <div class="space-y-2.5 pt-2 border-t border-slate-800">
+                <!-- Slider Nodos / Residuos -->
+                <div>
+                    <div class="flex justify-between text-xs text-slate-300 mb-1">
+                        <span class="flex items-center">
+                            <span>Residuos / Nodos (N)</span>
+                            <span id="badge-20k" class="ml-1.5 text-[9px] bg-cyan-950 text-cyan-400 px-1.5 py-0.2 rounded border border-cyan-800 font-mono">Max 20,000</span>
+                        </span>
+                        <span id="val-nodes" class="font-mono text-cyan-400 font-bold">56</span>
+                    </div>
+                    <input type="range" id="input-nodes" min="1" max="20000" step="1" value="56" oninput="actualizarNodos(this.value)"
+                        class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                </div>
+
+                <!-- Grosor de Cuerda Proporcional (Máx 50% respecto al nodo) -->
+                <div>
+                    <div class="flex justify-between text-xs text-slate-300 mb-1">
+                        <span>Grosor Cuerda (Máx 50% del Nodo)</span>
+                        <span id="val-radius" class="font-mono text-cyan-400 font-bold">0.35</span>
+                    </div>
+                    <input type="range" id="input-radius" min="0.05" max="0.75" step="0.05" value="0.35" oninput="actualizarGrosor(this.value)"
+                        class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                </div>
+
+                <!-- Amplitud / Escala de Figura -->
+                <div>
+                    <div class="flex justify-between text-xs text-slate-300 mb-1">
+                        <span class="flex items-center">
+                            <i class="fa-solid fa-expand text-[10px] mr-1 text-cyan-400"></i>
+                            <span>Amplitud / Escala de Figura</span>
+                        </span>
+                        <span id="val-scale" class="font-mono text-cyan-400 font-bold">1.0x</span>
+                    </div>
+                    <input type="range" id="input-scale" min="0.1" max="3.0" step="0.05" value="1.0" oninput="actualizarEscalaFigura(this.value)"
+                        class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                </div>
+
+                <!-- Estilo de Visualización -->
+                <div>
+                    <label class="text-[10px] font-semibold uppercase text-slate-400 tracking-wider block mb-1">
+                        <i class="fa-solid fa-palette mr-1"></i> Modo de Renderizado 3D
+                    </label>
+                    <select id="select-render-style" onchange="actualizarEstiloRender(this.value)" 
+                        class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-xl p-2 focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                        <option value="hybrid">Híbrido Tubo + Esferas AA (CPK)</option>
+                        <option value="tube">Tubo Continuo Ribbons</option>
+                        <option value="backbone">C-Alfa Esqueletal</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- TOGGLES Y OPCIONES -->
+            <div class="space-y-1.5 pt-2 border-t border-slate-800">
+                <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer py-1">
+                    <span>Mostrar Nodos (Residuos Cα)</span>
+                    <input type="checkbox" id="check-nodes" checked onchange="toggleNodes(this.checked)" class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500 relative"></div>
+                </label>
+
+                <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer py-1">
+                    <span>Visualizar Choques Estéricos</span>
+                    <input type="checkbox" id="check-clashes" checked onchange="toggleClashes(this.checked)" class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500 relative"></div>
+                </label>
+
+                <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer py-1">
+                    <span>Animar Rotación del Esqueleto</span>
+                    <input type="checkbox" id="check-rotate" checked class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500 relative"></div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Dynamic Energy Chart -->
+        <div class="pt-2 border-t border-slate-800 space-y-1">
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    <i class="fa-solid fa-chart-line mr-1 text-cyan-400"></i> Perfil Energético Nativo
+                </span>
+                <span class="text-[9px] text-slate-500 font-mono">Unidades Kcal/mol</span>
+            </div>
+            <div class="h-16 w-full bg-slate-950/70 rounded-xl p-1 border border-slate-800">
+                <canvas id="energyChart"></canvas>
+            </div>
+        </div>
+    </aside>
+
+    <!-- THREE.JS ENGINE & BIOMATHEMATICAL CODE -->
+    <script>
+        // ESTADO GLOBAL DEL SISTEMA
+        let isDrawerVisible = true;
+        let isHUDVisible = true;
+
+        let N_NODOS = 56;
+        let GROSOR_CUERDA = 0.35;
+        let ESCALA_FIGURA = 1.0;  
+        let MOSTRAR_CHOQUES = true;
+        let MOSTRAR_NODOS = true;
+        let MODO_RENDER = "hybrid"; 
+        let coloresResiduosActuales = [];
+
+        // DICCIONARIO FISICOQUÍMICO Y COLORACIÓN CPK DE AMINOÁCIDOS
+        const PALETA_AMINOACIDOS = {
+            'A': { nombre: 'Alanina', phi: -57, psi: -47, color: 0x38bdf8, tipo: 'Hidrofóbico' },
+            'R': { nombre: 'Arginina', phi: -60, psi: -40, color: 0x818cf8, tipo: 'Básico' },
+            'N': { nombre: 'Asparagina', phi: -70, psi: -20, color: 0x34d399, tipo: 'Polar' },
+            'D': { nombre: 'Aspartato', phi: -65, psi: -30, color: 0xf43f5e, tipo: 'Ácido' },
+            'C': { nombre: 'Cisteína', phi: -60, psi: 120, color: 0xf59e0b, tipo: 'Azufre' },
+            'E': { nombre: 'Glutamato', phi: -60, psi: -50, color: 0xec4899, tipo: 'Ácido' },
+            'Q': { nombre: 'Glutamina', phi: -65, psi: -40, color: 0x10b981, tipo: 'Polar' },
+            'G': { nombre: 'Glicina', phi: 0, psi: 0, color: 0x94a3b8, tipo: 'Especial' },
+            'H': { nombre: 'Histidina', phi: -60, psi: 130, color: 0x6366f1, tipo: 'Básico' },
+            'I': { nombre: 'Isoleucina', phi: -60, psi: 135, color: 0x06b6d4, tipo: 'Hidrofóbico' },
+            'L': { nombre: 'Leucina', phi: -60, psi: -50, color: 0x0284c7, tipo: 'Hidrofóbico' },
+            'K': { nombre: 'Lisina', phi: -70, psi: -30, color: 0xa855f7, tipo: 'Básico' },
+            'M': { nombre: 'Metionina', phi: -60, psi: -45, color: 0xeab308, tipo: 'Azufre' },
+            'F': { nombre: 'Fenilalanina', phi: -60, psi: 140, color: 0x3b82f6, tipo: 'Aromático' },
+            'P': { nombre: 'Prolina', phi: -75, psi: 150, color: 0xef4444, tipo: 'Especial' },
+            'S': { nombre: 'Serina', phi: -60, psi: 120, color: 0x14b8a6, tipo: 'Polar' },
+            'T': { nombre: 'Treonina', phi: -60, psi: 120, color: 0x8b5cf6, tipo: 'Polar' },
+            'W': { nombre: 'Triptófano', phi: -60, psi: 130, color: 0x6b21a8, tipo: 'Aromático' },
+            'Y': { nombre: 'Tirosina', phi: -60, psi: 130, color: 0x0284c7, tipo: 'Aromático' },
+            'V': { nombre: 'Valina', phi: -60, psi: 130, color: 0x0ea5e9, tipo: 'Hidrofóbico' }
+        };
+
+        // VARIABLES DE THREE.JS
+        let scene, camera, renderer, controls;
+        let proteinGroup = new THREE.Group();
+        let ropeMesh = null;
+        let lineMesh = null;
+        let nodesGroup = new THREE.Group();
+        let clashGroup = new THREE.Group();
+        let currentCoords = [];
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x080c14, 0.008);
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.set(0, 20, 65);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+
+            const ambientLight = new THREE.AmbientLight(0x1e293b, 1.8);
+            scene.add(ambientLight);
+
+            const dirLight1 = new THREE.DirectionalLight(0x38bdf8, 2.2);
+            dirLight1.position.set(30, 50, 30);
+            scene.add(dirLight1);
+
+            const dirLight2 = new THREE.DirectionalLight(0x818cf8, 1.6);
+            dirLight2.position.set(-30, -30, -30);
+            scene.add(dirLight2);
+
+            scene.add(proteinGroup);
+            proteinGroup.add(nodesGroup);
+            proteinGroup.add(clashGroup);
+
+            window.addEventListener('resize', onWindowResize);
+            initChart();
+            animate();
+
+            document.getElementById('input-sequence').value = "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE";
+            procesarEntradaTexto(true);
+        }
+
+        // GENERADOR Y MAPEADOR DE LETRAS A COORDENADAS 3D REALES
+        function generarCoordenadasPorTexto(texto, numNodosSolicitados, esCambioSecuenciaDirecta = false) {
+            // Sanitización estricta eliminando saltos de línea, espacios invisibles y caracteres no ASCII
+            const cleanText = texto.toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+            const secBase = cleanText.length > 0 ? cleanText : "MOTORRIVERA";
+
+            const sliderNodes = document.getElementById('input-nodes');
+            const lenActual = secBase.length;
+
+            if (esCambioSecuenciaDirecta) {
+                N_NODOS = lenActual;
+                sliderNodes.min = lenActual;
+                sliderNodes.step = 1;
+                sliderNodes.value = lenActual;
+                document.getElementById('val-nodes').innerText = lenActual;
+            } else {
+                sliderNodes.min = Math.min(lenActual, numNodosSolicitados);
+            }
+
+            document.getElementById('label-aa-count').innerText = `${lenActual} AA (Nativos)`;
+
+            let secuenciaFinal = "";
+            if (numNodosSolicitados <= lenActual) {
+                secuenciaFinal = secBase.substring(0, numNodosSolicitados);
+            } else {
+                while (secuenciaFinal.length < numNodosSolicitados) {
+                    secuenciaFinal += secBase;
+                }
+                secuenciaFinal = secuenciaFinal.substring(0, numNodosSolicitados);
+            }
+
+            const modoAlgoritmo = document.getElementById('select-mapeo-letra').value;
+            const coords = [];
+            coloresResiduosActuales = [];
+
+            let posActual = new THREE.Vector3(0, 0, 0);
+            let dirActual = new THREE.Vector3(1, 0, 0);
+            let vUp = new THREE.Vector3(0, 1, 0);
+
+            const dBond = 1.8;
+
+            // Bucle exacto: por cada letra en secuenciaFinal se agrega 1 nodo independientemente de las rotaciones
+            for (let i = 0; i < secuenciaFinal.length; i++) {
+                const char = secuenciaFinal[i];
+                let phi = 0, psi = 0;
+                let colorResiduo = 0x38bdf8;
+
+                if (modoAlgoritmo === "ramachandran") {
+                    const infoAA = PALETA_AMINOACIDOS[char] || { phi: -60, psi: -45, color: 0x0284c7 };
+                    phi = infoAA.phi * (Math.PI / 180);
+                    psi = infoAA.psi * (Math.PI / 180);
+                    colorResiduo = infoAA.color;
+                } else if (modoAlgoritmo === "frecuencia_ascii") {
+                    const code = char.charCodeAt(0);
+                    phi = ((code % 12) * 30 - 180) * (Math.PI / 180);
+                    psi = (((code * 7) % 12) * 30 - 180) * (Math.PI / 180);
+                    const infoAA = PALETA_AMINOACIDOS[char];
+                    colorResiduo = infoAA ? infoAA.color : 0x38bdf8;
+                } else if (modoAlgoritmo === "hidrofobico") {
+                    const infoAA = PALETA_AMINOACIDOS[char] || { color: 0x38bdf8, tipo: 'Hidrofóbico' };
+                    const esHidro = infoAA.tipo === 'Hidrofóbico';
+                    phi = esHidro ? -60 * (Math.PI / 180) : -120 * (Math.PI / 180);
+                    psi = esHidro ? -45 * (Math.PI / 180) : 135 * (Math.PI / 180);
+                    colorResiduo = infoAA.color;
+                }
+
+                coloresResiduosActuales.push(colorResiduo);
+                coords.push(posActual.clone());
+
+                // Se avanza el vector de posición para el siguiente aminoácido
+                const axisYaw = vUp.clone();
+                dirActual.applyAxisAngle(axisYaw, phi * 0.4);
+
+                const axisPitch = new THREE.Vector3().crossVectors(dirActual, vUp).normalize();
+                dirActual.applyAxisAngle(axisPitch, psi * 0.4);
+
+                posActual.add(dirActual.clone().multiplyScalar(dBond));
+            }
+
+            const centro = new THREE.Vector3();
+            coords.forEach(p => centro.add(p));
+            centro.divideScalar(coords.length || 1);
+            coords.forEach(p => p.sub(centro));
+
+            return coords;
+        }
+
+        function setPresetText(txt) {
+            const input = document.getElementById('input-sequence');
+            // Reemplazo limpio y directo asegurando las 56 letras exactas
+            input.value = txt;
+            procesarEntradaTexto(true);
+        }
+
+        function procesarEntradaTexto(esCambioSecuenciaDirecta = false) {
+            const txt = document.getElementById('input-sequence').value;
+            // Limpieza estricta de la cadena de entrada
+            const cleanText = txt.toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+            const lenActual = cleanText.length || 0;
+            
+            // Forzar inmediatamente a N_NODOS la longitud real del texto ingresado
+            N_NODOS = lenActual;
+
+            document.getElementById('active-template-name').innerText = `Secuencia (${lenActual} AA)`;
+            currentCoords = generarCoordenadasPorTexto(cleanText, lenActual, esCambioSecuenciaDirecta);
+            actualizarEscenaCompleta(currentCoords);
+        }
+
+        function actualizarEscenaCompleta(coords) {
+            document.getElementById('hud-node-count').innerText = coords.length;
+            document.getElementById('val-nodes').innerText = coords.length;
+
+            if (ropeMesh) proteinGroup.remove(ropeMesh);
+            if (lineMesh) proteinGroup.remove(lineMesh);
+
+            proteinGroup.scale.set(ESCALA_FIGURA, ESCALA_FIGURA, ESCALA_FIGURA);
+            
+            if (MODO_RENDER === "tube" || MODO_RENDER === "hybrid") {
+                const curve = new THREE.CatmullRomCurve3(coords, false, 'catmullrom', 0.5);
+                const tubularSegments = Math.min(coords.length * 3, 2000); 
+                const radialSegments = N_NODOS > 5000 ? 6 : 10; 
+                
+                const geometry = new THREE.TubeGeometry(curve, tubularSegments, GROSOR_CUERDA, radialSegments, false);
+
+                const material = new THREE.MeshStandardMaterial({
+                    color: 0x0284c7,
+                    roughness: 0.25,
+                    metalness: 0.4,
+                    emissive: 0x0369a1,
+                    emissiveIntensity: 0.2
+                });
+
+                ropeMesh = new THREE.Mesh(geometry, material);
+                proteinGroup.add(ropeMesh);
+            }
+
+            if (MODO_RENDER === "backbone") {
+                const lineGeo = new THREE.BufferGeometry().setFromPoints(coords);
+                const lineMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, linewidth: 2 });
+                lineMesh = new THREE.Line(lineGeo, lineMat);
+                proteinGroup.add(lineMesh);
+            }
+
+            while (nodesGroup.children.length > 0) {
+                nodesGroup.remove(nodesGroup.children[0]);
+            }
+
+            if (MOSTRAR_NODOS && (MODO_RENDER === "hybrid" || MODO_RENDER === "backbone")) {
+                const pasoNodos = N_NODOS > 3000 ? Math.ceil(N_NODOS / 1000) : 1;
+                const sphereRadius = Math.max(GROSOR_CUERDA * 2.0, 0.4);
+                const nodeGeo = new THREE.SphereGeometry(sphereRadius, 8, 8);
+
+                for (let idx = 0; idx < coords.length; idx += pasoNodos) {
+                    const pt = coords[idx];
+                    const colorHex = coloresResiduosActuales[idx % coloresResiduosActuales.length] || 0x38bdf8;
+
+                    const mat = new THREE.MeshStandardMaterial({
+                        color: colorHex,
+                        roughness: 0.3,
+                        metalness: 0.4
+                    });
+                    const sphere = new THREE.Mesh(nodeGeo, mat);
+                    sphere.position.copy(pt);
+                    nodesGroup.add(sphere);
+                }
+            }
+
+            evaluarYVisualizarColisiones(coords);
+        }
+
+        function evaluarCostoPlantilla(coords) {
+            let choques = 0;
+            const umbralMinimo = GROSOR_CUERDA * 2.8;
+            const umbralCuadrado = umbralMinimo * umbralMinimo;
+            const clashPairs = [];
+            const N = coords.length;
+
+            const pasoMuestreo = N > 5000 ? 12 : (N > 1000 ? 5 : 1);
+
+            for (let i = 0; i < N; i += pasoMuestreo) {
+                for (let j = i + pasoMuestreo * 2; j < N; j += pasoMuestreo) {
+                    const seqDist = Math.abs(i - j);
+                    if (seqDist <= 4) continue;
+
+                    const distSq = coords[i].distanceToSquared(coords[j]);
+                    if (distSq < umbralCuadrado) {
+                        choques++;
+                        if (clashPairs.length < 40) {
+                            clashPairs.push({ p1: coords[i], p2: coords[j] });
+                        }
+                    }
+                }
+            }
+
+            const dists = [];
+            const stepTension = N > 2000 ? 4 : 1;
+            for (let i = 0; i < N - 1; i += stepTension) {
+                dists.push(coords[i].distanceTo(coords[i+1]));
+            }
+
+            const meanDist = dists.reduce((a, b) => a + b, 0) / (dists.length || 1);
+            const variance = dists.reduce((a, b) => a + Math.pow(b - meanDist, 2), 0) / (dists.length || 1);
+            const stdDevTension = Math.sqrt(variance);
+
+            const energiaTotal = (choques * 45.0) + (stdDevTension * 18.0);
+
+            // MÓDULO AUDITADO: CÁLCULO UNÍVOCO DE CONTACTOS Y RADIO DE GIRO FISICO (3.8052 Å)
+            const factorEscalaFisico = 3.8052 / (meanDist || 1.8);
+            
+            // Radio de giro estricto
+            const centro = new THREE.Vector3();
+            coords.forEach(p => centro.add(p));
+            centro.divideScalar(N || 1);
+            let sumSqDist = 0;
+            coords.forEach(p => {
+                sumSqDist += p.distanceToSquared(centro);
+            });
+            const rgOriginal = Math.sqrt(sumSqDist / (N || 1));
+            const rgFisico = rgOriginal * factorEscalaFisico;
+
+            // Recuento de contactos terciarios unívocos (j > i + 4, umbral 8.0 Å en escala física)
+            const umbralContactoFisico = 8.0;
+            const umbralContactoMemoriaSq = Math.pow(umbralContactoFisico / factorEscalaFisico, 2);
+            let contactosUnicos = 0;
+            for (let i = 0; i < N; i++) {
+                for (let j = i + 5; j < N; j++) {
+                    if (coords[i].distanceToSquared(coords[j]) <= umbralContactoMemoriaSq) {
+                        contactosUnicos++;
+                    }
+                }
+            }
+
+            return {
+                energiaTotal: parseFloat(energiaTotal.toFixed(1)),
+                choques: choques * pasoMuestreo,
+                tensionDev: parseFloat(stdDevTension.toFixed(2)),
+                clashPairs: clashPairs,
+                rgFisico: parseFloat(rgFisico.toFixed(2)),
+                contactosUnicos: contactosUnicos
+            };
+        }
+
+        function evaluarYVisualizarColisiones(coords) {
+            while (clashGroup.children.length > 0) {
+                clashGroup.remove(clashGroup.children[0]);
+            }
+
+            const metrics = evaluarCostoPlantilla(coords);
+
+            document.getElementById('metric-energy').innerText = metrics.energiaTotal.toFixed(1);
+            document.getElementById('metric-clashes').innerText = metrics.choques;
+            document.getElementById('metric-tension').innerText = metrics.tensionDev.toFixed(2);
+            document.getElementById('metric-rg').innerText = metrics.rgFisico.toFixed(2);
+            document.getElementById('hud-contact-count').innerText = metrics.contactosUnicos;
+
+            if (MOSTRAR_CHOQUES && metrics.clashPairs.length > 0) {
+                const ringGeo = new THREE.TorusGeometry(GROSOR_CUERDA * 1.4, 0.12, 6, 12);
+                const clashMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+                metrics.clashPairs.forEach(pair => {
+                    const mid = pair.p1.clone().add(pair.p2).multiplyScalar(0.5);
+                    const ring = new THREE.Mesh(ringGeo, clashMat);
+                    ring.position.copy(mid);
+                    clashGroup.add(ring);
+                });
+            }
+
+            updateChart(metrics.energiaTotal);
+        }
+
+        // FUNCIÓN DE EXPORTACIÓN CON ESCALADO MÉTRICO FISICO (3.8052 Å)
+        function exportarCSVFisico() {
+            if (!currentCoords || currentCoords.length === 0) return;
+            const txtSec = document.getElementById('input-sequence').value.toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+            const N = currentCoords.length;
+
+            let sumaDist = 0;
+            for (let i = 0; i < N - 1; i++) {
+                sumaDist += currentCoords[i].distanceTo(currentCoords[i+1]);
+            }
+            const dMedia = sumaDist / (N - 1 || 1);
+            const factorEscala = 3.8052 / (dMedia || 1.8);
+
+            let csvContent = "data:text/csv;charset=utf-8,Index,Aminoacido,X_Angstrom_3.8A,Y_Angstrom_3.8A,Z_Angstrom_3.8A,Distancia_Enlace\n";
+
+            for (let i = 0; i < N; i++) {
+                const aa = txtSec[i % txtSec.length] || 'A';
+                const x = (currentCoords[i].x * factorEscala).toFixed(4);
+                const y = (currentCoords[i].y * factorEscala).toFixed(4);
+                const z = (currentCoords[i].z * factorEscala).toFixed(4);
+                let dEnlace = "3.8052";
+                if (i < N - 1) {
+                    dEnlace = (currentCoords[i].distanceTo(currentCoords[i+1]) * factorEscala).toFixed(4);
+                }
+                csvContent += `${i+1},${aa},${x},${y},${z},${dEnlace}\n`;
+            }
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `coordenadas_3.8A_${txtSec.substring(0, 10)}_${N}AA.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function evaluarYVisualizarColisiones(coords) {
+            while (clashGroup.children.length > 0) {
+                clashGroup.remove(clashGroup.children[0]);
+            }
+
+            const metrics = evaluarCostoPlantilla(coords);
+
+            document.getElementById('metric-energy').innerText = metrics.energiaTotal;
+            document.getElementById('metric-clashes').innerText = metrics.choques;
+            document.getElementById('metric-tension').innerText = metrics.tensionDev;
+
+            if (MOSTRAR_CHOQUES && metrics.clashPairs.length > 0) {
+                const ringGeo = new THREE.TorusGeometry(GROSOR_CUERDA * 1.4, 0.12, 6, 12);
+                const clashMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+
+                metrics.clashPairs.forEach(pair => {
+                    const mid = pair.p1.clone().add(pair.p2).multiplyScalar(0.5);
+                    const ring = new THREE.Mesh(ringGeo, clashMat);
+                    ring.position.copy(mid);
+                    clashGroup.add(ring);
+                });
+            }
+
+            updateChart(metrics.energiaTotal);
+        }
+
+        function actualizarNodos(val) {
+            N_NODOS = parseInt(val);
+            document.getElementById('val-nodes').innerText = N_NODOS;
+            procesarEntradaTexto(false);
+        }
+
+        function actualizarGrosor(val) {
+            GROSOR_CUERDA = parseFloat(val);
+            document.getElementById('val-radius').innerText = GROSOR_CUERDA.toFixed(2);
+            actualizarEscenaCompleta(currentCoords);
+        }
+
+        function actualizarEscalaFigura(val) {
+            ESCALA_FIGURA = parseFloat(val);
+            document.getElementById('val-scale').innerText = ESCALA_FIGURA.toFixed(2) + "x";
+            proteinGroup.scale.set(ESCALA_FIGURA, ESCALA_FIGURA, ESCALA_FIGURA);
+        }
+
+        function actualizarEstiloRender(val) {
+            MODO_RENDER = val;
+            actualizarEscenaCompleta(currentCoords);
+        }
+
+        function toggleNodes(checked) {
+            MOSTRAR_NODOS = checked;
+            actualizarEscenaCompleta(currentCoords);
+        }
+
+        function toggleClashes(checked) {
+            MOSTRAR_CHOQUES = checked;
+            evaluarYVisualizarColisiones(currentCoords);
+        }
+
+        function toggleControlDrawer() {
+            const drawer = document.getElementById('control-drawer');
+            const toggleIcon = document.getElementById('toggle-icon');
+            const toggleText = document.getElementById('toggle-text');
+
+            isDrawerVisible = !isDrawerVisible;
+
+            if (isDrawerVisible) {
+                drawer.classList.remove('drawer-hidden');
+                toggleIcon.className = "fa-solid fa-eye-slash text-cyan-400";
+                toggleText.innerText = "Ocultar Panel";
+            } else {
+                drawer.classList.add('drawer-hidden');
+                toggleIcon.className = "fa-solid fa-cube text-cyan-400";
+                toggleText.innerText = "Ver 3D Completo";
+            }
+        }
+
+        function toggleHUD() {
+            const hud = document.getElementById('active-hud');
+            isHUDVisible = !isHUDVisible;
+            if (isHUDVisible) {
+                hud.style.opacity = "1";
+                hud.style.pointerEvents = "auto";
+            } else {
+                hud.style.opacity = "0";
+                hud.style.pointerEvents = "none";
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        let energyChart;
+        function initChart() {
+            const ctx = document.getElementById('energyChart').getContext('2d');
+            energyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(15).fill(''),
+                    datasets: [{
+                        data: Array(15).fill(0),
+                        borderColor: '#38bdf8',
+                        borderWidth: 2,
+                        fill: true,
+                        backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                        tension: 0.35,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: { display: false, min: 0 }
+                    }
+                }
+            });
+        }
+
+        function updateChart(newValue) {
+            if (!energyChart) return;
+            energyChart.data.datasets[0].data.shift();
+            energyChart.data.datasets[0].data.push(newValue);
+            energyChart.update();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (document.getElementById('check-rotate').checked) {
+                proteinGroup.rotation.y += 0.004;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init3D;
+    </script>
+</body>
+</html>

@@ -328,3 +328,12 @@ def alineacion_kabsch(A, B):
     A_rot = np.dot(A, R) + t
     rmsd = np.sqrt(np.mean(np.sum((A_rot - B)**2, axis=1)))
     return A_rot, rmsd
+
+
+CAPTURAS DE PANTALLA
+
+<img width="1794" height="889" alt="Captura de pantalla_4-11-2026_214944_" src="https://github.com/user-attachments/assets/f7f496b7-f9a6-4a5a-abab-aef3ecb8e93a" />
+
+<img width="1794" height="889" alt="Captura de pantalla_4-11-2026_215348_" src="https://github.com/user-attachments/assets/a1653932-5195-4fd3-8ce7-2bdeaddd6406" />
+
+
